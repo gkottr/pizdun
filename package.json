@@ -1,0 +1,80 @@
+{
+  "name": "pizdun",
+  "version": "1.0.0",
+  "description": "Desktop-приложение для потокового распознавания речи на созвонах, извлечения фактов и суммаризации",
+  "main": "main.js",
+  "scripts": {
+    "postinstall": "node scripts/setup-whisper.js",
+    "setup:whisper": "node scripts/setup-whisper.js",
+    "setup:whisper:force": "FORCE_WHISPER_SETUP=1 node scripts/setup-whisper.js",
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "test": "node test/core.test.js && node test/llm.test.js && node test/setup.test.js && node test/e2e-whisper.test.js",
+    "prebuild": "node scripts/setup-whisper.js",
+    "build": "electron-builder",
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win",
+    "build:linux": "electron-builder --linux",
+    "check:audio": "electron scripts/check-system-audio"
+  },
+  "keywords": [
+    "electron",
+    "whisper",
+    "transcription",
+    "meetings"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "dev.pizdun.app",
+    "productName": "Pizdun",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "!vendor",
+      "!dist",
+      "!test",
+      "!scripts"
+    ],
+    "extraResources": [
+      {
+        "from": "vendor/bin/${os}-${arch}",
+        "to": "whisper",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Запись звука созвона для расшифровки",
+        "NSAudioCaptureUsageDescription": "Захват системного звука созвона"
+      }
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Office"
+    },
+    "afterPack": "scripts/afterpack-sign.js"
+  }
+}

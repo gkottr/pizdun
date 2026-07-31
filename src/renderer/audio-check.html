@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; media-src 'self' blob:;">
+  <title>Проверка системного звука</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <h3>Проверка захвата системного звука</h3>
+  <pre id="out"></pre>
+  <script>
+    // Эта страница повторяет боевой путь захвата: именно вызов getDisplayMedia
+    // заставляет macOS показать запрос на «Запись экрана и системного звука».
+    const say = (m) => { console.log(m); document.getElementById('out').textContent += m + '\n'; };
+
+    (async () => {
+      try {
+        const stream = await Promise.race([
+          navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }),
+          new Promise((_r, reject) => setTimeout(() => reject(new Error('таймаут 15 с — ОС не ответила')), 15000))
+        ]);
+        const audio = stream.getAudioTracks();
+        say('аудиодорожек: ' + audio.length);
+        if (audio.length) say('дорожка: ' + audio[0].label + ' | ' + audio[0].readyState);
+        stream.getTracks().forEach((t) => t.stop());
+        say('ИТОГ: ' + (audio.length ? 'ЗАХВАТ РАБОТАЕТ' : 'дали захват без звука'));
+      } catch (err) {
+        say('ошибка: ' + err.name + ': ' + err.message);
+        say('ИТОГ: ЗАХВАТ НЕДОСТУПЕН');
+      }
+    })();
+  </script>
+</body>
+</html>

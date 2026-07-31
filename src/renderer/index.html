@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; media-src 'self' blob:;">
+  <title>Созвон</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot" id="recDot"></span>
+      <input id="title" class="title-input" placeholder="Название созвона" autocomplete="off">
+    </div>
+
+    <div class="controls">
+      <div class="meter" title="Уровень входного сигнала"><div class="meter-fill" id="meter"></div></div>
+      <span class="timer" id="timer">00:00:00</span>
+      <button id="btnStart" class="btn btn-primary">● Начать</button>
+      <button id="btnStop" class="btn btn-danger" disabled>■ Завершить</button>
+      <button id="btnPlay" class="btn btn-ghost" title="Музыка (включается сама на загрузке модели)">▶</button>
+      <button id="btnArchive" class="btn btn-ghost" title="Архив созвонов">Архив</button>
+      <button id="btnSettings" class="btn btn-ghost" title="Настройки">⚙</button>
+    </div>
+  </header>
+
+  <div class="statusbar">
+    <span id="status">Готов к работе</span>
+    <span class="spacer"></span>
+    <span class="chip" id="chipSources">источники: —</span>
+    <span class="chip" id="chipQueue">очередь: 0</span>
+    <span class="chip" id="chipFacts">фактов: 0</span>
+    <span class="chip" id="chipDir" title="Папка созвона"></span>
+  </div>
+
+  <main class="grid">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Расшифровка</h2>
+        <div class="panel-actions">
+          <label class="mini"><input type="checkbox" id="autoScroll" checked> автопрокрутка</label>
+          <button class="btn btn-mini" id="btnCopyTranscript">Копировать</button>
+        </div>
+      </div>
+      <div class="panel-body" id="transcript">
+        <p class="empty">Нажми «Начать» — здесь появится потоковая расшифровка.</p>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Факты <span class="live" id="factsLive" hidden>извлекаю…</span></h2>
+        <div class="panel-actions">
+          <button class="btn btn-mini" id="btnCopyFacts">Копировать</button>
+        </div>
+      </div>
+      <div class="panel-body" id="facts">
+        <p class="empty">Факты вычленяются на лету, по мере накопления расшифровки.</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- Итоги -->
+  <div class="modal" id="summaryModal" hidden>
+    <div class="modal-box wide">
+      <div class="modal-head">
+        <h2 id="summaryTitle">Итоги созвона</h2>
+        <div class="row-gap">
+          <button class="btn btn-mini" id="btnOpenFolder">Открыть папку</button>
+          <button class="btn btn-mini" id="btnResummarize">Пересобрать</button>
+          <button class="btn btn-mini" id="btnCloseSummary">Закрыть</button>
+        </div>
+      </div>
+      <div class="modal-body markdown" id="summaryBody"></div>
+    </div>
+  </div>
+
+  <!-- Архив -->
+  <div class="modal" id="archiveModal" hidden>
+    <div class="modal-box wide">
+      <div class="modal-head">
+        <h2>Архив созвонов</h2>
+        <button class="btn btn-mini" id="btnCloseArchive">Закрыть</button>
+      </div>
+      <div class="archive">
+        <ul class="archive-list" id="archiveList"></ul>
+        <div class="archive-view">
+          <div class="tabs">
+            <button class="tab active" data-tab="summary">Итоги</button>
+            <button class="tab" data-tab="facts">Факты</button>
+            <button class="tab" data-tab="transcript">Расшифровка</button>
+          </div>
+          <div class="markdown" id="archiveBody"><p class="empty">Выбери созвон слева.</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Настройки -->
+  <div class="modal" id="settingsModal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2>Настройки</h2>
+        <button class="btn btn-mini" id="btnCloseSettings">Закрыть</button>
+      </div>
+      <div class="modal-body">
+        <h3>LLM (OpenAI-совместимый API)</h3>
+        <label>URL API<input id="s_baseUrl" placeholder="https://api.openai.com/v1"></label>
+        <label>Токен<input id="s_apiKey" type="password" placeholder="sk-..."></label>
+        <label>Модель
+          <span class="row">
+            <input id="s_model" placeholder="gpt-4o-mini">
+            <button class="btn btn-mini" id="btnModels">Список</button>
+          </span>
+        </label>
+        <select id="s_modelList" hidden></select>
+        <div class="row">
+          <label class="half">Temperature<input id="s_temperature" type="number" step="0.1" min="0" max="2"></label>
+          <label class="half">Max tokens<input id="s_maxTokens" type="number" min="256" step="128"></label>
+        </div>
+        <div class="row-gap">
+          <button class="btn btn-mini" id="btnTestLlm">Проверить связь</button>
+          <span class="hint" id="llmTestResult"></span>
+        </div>
+
+        <h3>whisper.cpp</h3>
+        <label>Бинарь whisper-cli
+          <span class="row">
+            <input id="s_binPath" placeholder="(автоопределение)">
+            <button class="btn btn-mini" data-pick="bin">…</button>
+          </span>
+        </label>
+        <label>Модель распознавания
+          <select id="s_modelSelect"></select>
+        </label>
+        <div class="model-panel">
+          <div class="row-gap">
+            <span class="hint" id="modelStatus">—</span>
+            <span class="spacer"></span>
+            <button class="btn btn-mini" id="btnModelDownload" hidden>Скачать</button>
+            <button class="btn btn-mini" id="btnModelCancel" hidden>Отмена</button>
+            <button class="btn btn-mini" id="btnModelRemove" hidden>Удалить</button>
+          </div>
+          <div class="progress" id="modelProgress" hidden><div class="progress-bar" id="modelBar"></div></div>
+        </div>
+        <details class="advanced">
+          <summary>Путь к файлу модели вручную</summary>
+          <label>ggml-*.bin
+            <span class="row">
+              <input id="s_modelPath" placeholder="(автоопределение)">
+              <button class="btn btn-mini" data-pick="model">…</button>
+            </span>
+          </label>
+        </details>
+        <div class="row">
+          <label class="half">Язык<input id="s_language" placeholder="ru | en | auto"></label>
+          <label class="half">Потоков<input id="s_threads" type="number" min="1" max="32"></label>
+        </div>
+        <label>Доп. аргументы<input id="s_extraArgs" placeholder="-bs 5 --suppress-nst"></label>
+        <label>Свои фразы-галлюцинации (по одной на строку)
+          <textarea id="s_extraHallucinations" rows="3" placeholder="Известные титры вроде «Субтитры сделал…» вырезаются сами"></textarea>
+        </label>
+        <div class="row-gap">
+          <button class="btn btn-mini" id="btnDetect">Автоопределить</button>
+          <span class="hint" id="detectResult"></span>
+        </div>
+
+        <h3>Потоковая нарезка</h3>
+        <div class="row">
+          <label class="half">Мин. кусок, с<input id="s_minChunkSec" type="number" step="0.5" min="1"></label>
+          <label class="half">Макс. кусок, с<input id="s_maxChunkSec" type="number" step="1" min="3"></label>
+        </div>
+        <div class="row">
+          <label class="half">Пауза для реза, мс<input id="s_silenceMs" type="number" step="50" min="200"></label>
+          <label class="half">Перекрытие, с<input id="s_overlapSec" type="number" step="0.1" min="0"></label>
+        </div>
+        <label>Порог VAD (RMS)<input id="s_vadThreshold" type="number" step="0.001" min="0" max="1"></label>
+
+        <h3>Факты на лету</h3>
+        <label class="check"><input type="checkbox" id="s_factsEnabled"> извлекать факты во время созвона</label>
+        <div class="row">
+          <label class="half">Окно, символов<input id="s_windowChars" type="number" step="100" min="300"></label>
+          <label class="half">Перекрытие, символов<input id="s_overlapChars" type="number" step="50" min="0"></label>
+        </div>
+
+        <h3>Итоговая суммаризация</h3>
+        <label>На основе
+          <select id="s_basedOn">
+            <option value="both">факты + расшифровка</option>
+            <option value="facts">только факты</option>
+            <option value="transcript">только расшифровка</option>
+          </select>
+        </label>
+        <label>Размер куска для map-reduce, символов<input id="s_mapChunkChars" type="number" step="1000" min="2000"></label>
+
+        <h3>Аудио и хранилище</h3>
+        <label>Микрофон
+          <span class="row">
+            <select id="s_audioInput"></select>
+            <button class="btn btn-mini" id="btnRefreshDevices">↻</button>
+          </span>
+        </label>
+        <label>Системный звук (голос собеседников) — пишется всегда</label>
+        <div class="model-panel">
+          <div class="row-gap">
+            <span class="hint" id="sysAudioStatus">—</span>
+            <span class="spacer"></span>
+            <button class="btn btn-mini" id="btnRequestScreen">Запросить разрешение</button>
+            <button class="btn btn-mini" id="btnResetScreen">Сбросить и спросить заново</button>
+            <button class="btn btn-mini" id="btnScreenSettings" hidden>Открыть настройки</button>
+            <button class="btn btn-mini" id="btnRecheckSysAudio">Проверить</button>
+          </div>
+        </div>
+        <label>Папка с данными (markdown)
+          <span class="row">
+            <input id="s_dataDir">
+            <button class="btn btn-mini" data-pick="dir">…</button>
+          </span>
+        </label>
+
+        <div class="modal-foot">
+          <button class="btn btn-primary" id="btnSaveSettings">Сохранить</button>
+          <span class="hint" id="saveHint"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <audio id="player" src="assets/rostov.mp3" preload="metadata" loop></audio>
+
+  <div id="toasts" class="toasts"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

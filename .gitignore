@@ -1,0 +1,8 @@
+node_modules/
+dist/
+vendor/
+test/fixtures/*.wav
+*.log
+.DS_Store
+.idea/
+.vscode/

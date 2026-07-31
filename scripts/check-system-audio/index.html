@@ -1,0 +1,35 @@
+<!DOCTYPE html><html><body><h3>loopback test</h3><pre id="o"></pre><script>
+const log = m => { console.log(m); document.getElementById('o').textContent += m + '\n'; };
+(async () => {
+  try {
+    const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+    const at = stream.getAudioTracks();
+    log('RESULT audio-tracks: ' + at.length);
+    if (at.length) log('RESULT track-label: ' + at[0].label + ' | state=' + at[0].readyState);
+    stream.getVideoTracks().forEach(t => t.stop());
+    if (!at.length) { log('RESULT verdict: НЕТ АУДИОДОРОЖКИ'); return setTimeout(() => require('electron').ipcRenderer && window.close(), 100); }
+
+    const ctx = new AudioContext({ sampleRate: 16000 });
+    const src = ctx.createMediaStreamSource(new MediaStream([at[0]]));
+    const an = ctx.createAnalyser(); an.fftSize = 2048;
+    src.connect(an);
+    const buf = new Float32Array(an.fftSize);
+    let peak = 0, samples = 0;
+    const t = setInterval(() => {
+      an.getFloatTimeDomainData(buf);
+      let sum = 0; for (const v of buf) sum += v * v;
+      const rms = Math.sqrt(sum / buf.length);
+      if (rms > peak) peak = rms;
+      if (++samples % 10 === 0) log('  rms=' + rms.toFixed(5) + ' peak=' + peak.toFixed(5));
+    }, 100);
+    setTimeout(() => {
+      clearInterval(t);
+      log('RESULT peak-rms: ' + peak.toFixed(5));
+      log('RESULT verdict: ' + (peak > 0.001 ? 'СИСТЕМНЫЙ ЗВУК ЗАХВАТЫВАЕТСЯ' : 'ТИШИНА (дорожка есть, сигнала нет)'));
+    }, 6000);
+  } catch (e) {
+    log('RESULT error: ' + e.name + ': ' + e.message);
+    log('RESULT verdict: ОШИБКА');
+  }
+})();
+</script></body></html>
