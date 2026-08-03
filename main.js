@@ -32,7 +32,7 @@ function createWindow() {
     minWidth: 960,
     minHeight: 640,
     backgroundColor: '#12141a',
-    title: 'Созвон — расшифровка и итоги',
+    title: 'Pizdun',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
