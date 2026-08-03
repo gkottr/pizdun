@@ -10,11 +10,16 @@ const storage = require('./src/main/storage');
 const whisper = require('./src/main/whisper');
 const llm = require('./src/main/llm');
 const models = require('./src/main/models');
+const archive = require('./src/main/archive');
 const systemAudio = require('./src/main/system-audio');
 
 let win = null;
 let settings = null;
-let session = null;
+
+// Активный созвон и те, что уже остановлены, но ещё досуммаризовываются.
+// Финализация идёт в фоне, поэтому новый созвон можно начинать сразу.
+let active = null;
+const finishing = new Map(); // id -> Session
 
 function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
@@ -61,15 +66,21 @@ function createWindow() {
   }
 }
 
-function wireSession() {
-  session = new Session(settings);
-  session.on('transcript', (e) => send('evt:transcript', e));
-  session.on('facts', (f) => send('evt:facts', f));
-  session.on('status', (s) => send('evt:status', s));
-  session.on('error', (m) => send('evt:error', m));
+// Событий теперь несколько источников, поэтому к каждому цепляем id созвона —
+// иначе рендерер не отличит хвост финализации от свежей записи.
+function wireSession(session) {
+  const tag = (payload) => ({ ...payload, sessionId: session.id });
+  session.on('transcript', (e) => send('evt:transcript', tag(e)));
+  session.on('facts', (f) => send('evt:facts', { sessionId: session.id, facts: f }));
+  session.on('status', (s) => send('evt:status', tag(s)));
+  session.on('error', (m) => send('evt:error', { sessionId: session.id, message: m }));
   session.on('level', (l) => send('evt:level', l));
   session.on('state', (s) => send('evt:state', s));
   session.on('finished', (r) => send('evt:finished', r));
+}
+
+function finishingList() {
+  return [...finishing.values()].map((s) => ({ id: s.id, title: s.store.title }));
 }
 
 // Самодиагностика прямо в бандле: важно проверять доступ именно от имени
@@ -127,7 +138,6 @@ app.whenReady().then(() => {
 
   settings = new Settings(app.getPath('userData'));
   fs.mkdirSync(settings.get().storage.dataDir, { recursive: true });
-  wireSession();
   createWindow();
 
   app.on('activate', () => {
@@ -136,7 +146,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (session) session.abort();
+  if (active) active.abort();
   if (process.platform !== 'darwin') app.quit();
 });
 
@@ -178,18 +188,43 @@ ipcMain.handle('dialog:pickDir', async (_e, { title }) => {
 ipcMain.handle('llm:test', async () => llm.testConnection(settings.get().llm));
 ipcMain.handle('llm:models', async () => llm.listModels(settings.get().llm));
 
-ipcMain.handle('session:start', (_e, title) => session.start(title));
+ipcMain.handle('session:start', (_e, title) => {
+  if (active) throw new Error('Созвон уже идёт');
+  const session = new Session(settings);
+  wireSession(session);
+  const state = session.start(title);
+  active = session;
+  return { ...state, finishing: finishingList() };
+});
 
-ipcMain.handle('session:stop', async (_e, opts) => session.stop(opts || {}));
+// Возвращаемся сразу, не дожидаясь итогов: финализация (хвост аудио, последние
+// факты, суммаризация) идёт в фоне и присылает 'evt:finished' по готовности.
+ipcMain.handle('session:stop', (_e, opts) => {
+  if (!active) throw new Error('Созвон не запущен');
+  const session = active;
+  active = null;
+  finishing.set(session.id, session);
 
-ipcMain.handle('session:state', () => session.state);
+  session.stop(opts || {})
+    .catch((err) => send('evt:error', { sessionId: session.id, message: err.message }))
+    .finally(() => {
+      finishing.delete(session.id);
+      send('evt:finishing', finishingList());
+    });
 
-ipcMain.handle('session:resummarize', async () => session.resummarize());
+  send('evt:finishing', finishingList());
+  return { id: session.id, title: session.store.title, finishing: finishingList() };
+});
+
+ipcMain.handle('session:state', () => ({
+  ...(active ? active.state : { active: false }),
+  finishing: finishingList()
+}));
 
 ipcMain.on('audio:chunk', (_e, buffer) => {
-  if (!session || !session.active) return;
+  if (!active || !active.active) return;
   const int16 = new Int16Array(buffer.buffer || buffer, buffer.byteOffset || 0, (buffer.byteLength || buffer.length) / 2);
-  session.pushAudio(int16);
+  active.pushAudio(int16);
 });
 
 // ---------- системный звук ----------
@@ -253,6 +288,7 @@ ipcMain.handle('models:select', (_e, file) => {
 });
 
 ipcMain.handle('sessions:list', () => storage.listSessions(settings.get().storage.dataDir));
+ipcMain.handle('sessions:resummarize', (_e, dir) => archive.resummarize(dir, settings.get()));
 ipcMain.handle('sessions:read', (_e, dir) => storage.readSession(dir));
 ipcMain.handle('shell:openPath', (_e, p) => shell.openPath(p));
 ipcMain.handle('shell:showItem', (_e, p) => shell.showItemInFolder(p));

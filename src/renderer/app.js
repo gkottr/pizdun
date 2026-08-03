@@ -11,6 +11,7 @@ const ui = {
   btnStop: $('btnStop'),
   status: $('status'),
   chipQueue: $('chipQueue'),
+  chipFinishing: $('chipFinishing'),
   chipSources: $('chipSources'),
   chipFacts: $('chipFacts'),
   chipDir: $('chipDir'),
@@ -30,6 +31,8 @@ const state = {
   factsCount: 0,
   lastDir: '',
   models: [],
+  sessionId: null,      // события от старых сессий в текущий экран не пускаем
+  finishing: [],
   archive: { items: [], current: null, tab: 'summary' }
 };
 
@@ -114,6 +117,7 @@ const FIELDS = [
   ['s_model', 'llm.model', 'str'],
   ['s_temperature', 'llm.temperature', 'num'],
   ['s_maxTokens', 'llm.maxTokens', 'num'],
+  ['s_timeoutSec', 'llm.timeoutMs', 'sec'],   // в интерфейсе секунды, в настройках миллисекунды
   ['s_binPath', 'whisper.binPath', 'str'],
   ['s_modelPath', 'whisper.modelPath', 'str'],
   ['s_language', 'whisper.language', 'str'],
@@ -150,6 +154,7 @@ function fillSettingsForm() {
     const el = $(id);
     const val = dig(state.settings, path);
     if (type === 'bool') el.checked = !!val;
+    else if (type === 'sec') el.value = val == null ? '' : Math.round(val / 1000);
     else el.value = val == null ? '' : val;
   }
 }
@@ -161,6 +166,7 @@ function collectSettingsForm() {
     let val;
     if (type === 'bool') val = el.checked;
     else if (type === 'num') val = el.value === '' ? dig(state.settings, path) : Number(el.value);
+    else if (type === 'sec') val = el.value === '' ? dig(state.settings, path) : Math.round(Number(el.value) * 1000);
     else val = el.value.trim();
     setDeep(patch, path, val);
   }
@@ -320,6 +326,7 @@ async function startSession() {
   }
   try {
     const st = await window.api.session.start(ui.title.value);
+    state.sessionId = st.id;
     state.recording = true;
     state.startedAt = Date.now();
     state.factsCount = 0;
@@ -353,23 +360,24 @@ async function stopSession() {
   clearInterval(state.timerId);
   stopAudio();
   ui.recDot.classList.remove('rec');
-  ui.status.textContent = 'Завершаю…';
+  ui.status.textContent = 'Готов к работе';
   try {
-    const res = await window.api.session.stop({ summarize: true });
-    showSummary(res.title, res.summary || '_Итоги не собраны — проверь настройки LLM._');
-    toast(`Готово: ${res.facts} фактов, ${clock(res.durationSec)}`, 'ok');
+    // Итоги собираются в фоне — новый созвон можно начинать прямо сейчас.
+    await window.api.session.stop({ summarize: true });
+    toast('Запись остановлена, итоги собираются в фоне');
   } catch (err) {
     toast(err.message, 'err');
   } finally {
+    state.sessionId = null;
     ui.btnStart.disabled = false;
     ui.title.disabled = false;
-    ui.status.textContent = 'Готов к работе';
   }
 }
 
 // ---------------------------------------------------------------- рендер событий
 
 window.api.onTranscript((e) => {
+  if (e.sessionId !== state.sessionId) return; // хвост прошлого созвона
   if (ui.transcript.querySelector('.empty')) ui.transcript.innerHTML = '';
   const div = document.createElement('div');
   div.className = 'line fresh';
@@ -378,7 +386,8 @@ window.api.onTranscript((e) => {
   autoscroll(ui.transcript);
 });
 
-window.api.onFacts((facts) => {
+window.api.onFacts(({ sessionId, facts }) => {
+  if (sessionId !== state.sessionId) return;
   if (ui.facts.querySelector('.empty')) ui.facts.innerHTML = '';
   for (const f of facts) {
     const div = document.createElement('div');
@@ -396,14 +405,31 @@ window.api.onFacts((facts) => {
 });
 
 window.api.onStatus((s) => {
+  if (s.sessionId !== state.sessionId) return; // фоновая финализация показывается чипом
   if (typeof s.queue === 'number') ui.chipQueue.textContent = `очередь: ${s.queue}`;
   if (typeof s.extracting === 'boolean') ui.factsLive.hidden = !s.extracting;
   if (typeof s.phase === 'string' && s.phase) ui.status.textContent = s.phase;
 });
 
-window.api.onError((msg) => {
-  toast(msg, 'err');
-  ui.status.textContent = msg.slice(0, 120);
+window.api.onError(({ sessionId, message }) => {
+  toast(message, 'err');
+  if (sessionId === state.sessionId || !state.recording) ui.status.textContent = message.slice(0, 120);
+});
+
+window.api.onFinishing((list) => {
+  state.finishing = list;
+  ui.chipFinishing.hidden = !list.length;
+  ui.chipFinishing.textContent = list.length === 1
+    ? `собираю итоги: ${list[0].title}`
+    : `собираю итоги: ${list.length}`;
+});
+
+// Итоги приходят асинхронно: показываем окно, только если пользователь
+// не пишет следующий созвон, иначе — ненавязчивым уведомлением.
+window.api.onFinished((res) => {
+  toast(`Итоги готовы: ${res.title} · фактов ${res.facts}`, 'ok',
+    { label: 'Показать', action: () => openSummary(res) });
+  if (!state.recording) openSummary(res);
 });
 
 window.api.onLevel((rms) => {
@@ -411,6 +437,12 @@ window.api.onLevel((rms) => {
 });
 
 // ---------------------------------------------------------------- итоги
+
+/** Показать итоги завершившегося созвона (в том числе фонового). */
+function openSummary(res) {
+  state.lastDir = res.dir;
+  showSummary(res.title, res.summary || '_Итоги не собраны — проверь настройки LLM и пересобери._');
+}
 
 function showSummary(title, markdown) {
   $('summaryTitle').textContent = `Итоги — ${title}`;
@@ -425,8 +457,9 @@ $('btnResummarize').onclick = async () => {
   btn.disabled = true;
   btn.textContent = 'Собираю…';
   try {
-    const md = await window.api.session.resummarize();
-    $('summaryBody').innerHTML = md2html(md);
+    if (!state.lastDir) throw new Error('Не знаю, какой созвон пересобирать');
+    const res = await window.api.archive.resummarize(state.lastDir);
+    $('summaryBody').innerHTML = md2html(res.summary);
     toast('Итоги пересобраны', 'ok');
   } catch (err) {
     toast(err.message, 'err');
@@ -477,6 +510,28 @@ function renderArchiveTab() {
     : '<p class="empty">Пусто — этот файл не создавался.</p>';
   body.scrollTop = 0;
 }
+
+$('btnArchiveResummarize').onclick = async () => {
+  const cur = state.archive.current;
+  if (!cur) return;
+  const btn = $('btnArchiveResummarize');
+  btn.disabled = true;
+  btn.textContent = 'Собираю…';
+  try {
+    const res = await window.api.archive.resummarize(cur.dir);
+    // Перечитываем с диска, чтобы показать ровно то, что записалось.
+    state.archive.current = { ...(await window.api.archive.read(cur.dir)), dir: cur.dir };
+    state.archive.tab = 'summary';
+    document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === 'summary'));
+    renderArchiveTab();
+    toast(`Итоги пересобраны: ${res.title}`, 'ok');
+  } catch (err) {
+    toast(`Пересборка: ${err.message}`, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Пересобрать итоги';
+  }
+};
 
 document.querySelectorAll('.tab').forEach((tab) => {
   tab.onclick = () => {

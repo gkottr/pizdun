@@ -9,7 +9,7 @@
     "setup:whisper:force": "FORCE_WHISPER_SETUP=1 node scripts/setup-whisper.js",
     "start": "electron .",
     "dev": "electron . --dev",
-    "test": "node test/core.test.js && node test/llm.test.js && node test/setup.test.js && node test/e2e-whisper.test.js",
+    "test": "node test/core.test.js && node test/llm.test.js && node test/archive.test.js && node test/setup.test.js && node test/e2e-whisper.test.js",
     "prebuild": "node scripts/setup-whisper.js",
     "build": "electron-builder",
     "build:mac": "electron-builder --mac",

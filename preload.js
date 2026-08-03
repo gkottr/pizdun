@@ -26,7 +26,6 @@ contextBridge.exposeInMainWorld('api', {
     start: (title) => ipcRenderer.invoke('session:start', title),
     stop: (opts) => ipcRenderer.invoke('session:stop', opts),
     state: () => ipcRenderer.invoke('session:state'),
-    resummarize: () => ipcRenderer.invoke('session:resummarize'),
     pushAudio: (int16) => ipcRenderer.send('audio:chunk', int16)
   },
   audio: {
@@ -44,6 +43,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   archive: {
     list: () => ipcRenderer.invoke('sessions:list'),
+    resummarize: (dir) => ipcRenderer.invoke('sessions:resummarize', dir),
     read: (dir) => ipcRenderer.invoke('sessions:read', dir)
   },
   shell: {
@@ -57,5 +57,6 @@ contextBridge.exposeInMainWorld('api', {
   onLevel: on('evt:level'),
   onState: on('evt:state'),
   onFinished: on('evt:finished'),
-  onModelProgress: on('evt:modelProgress')
+  onModelProgress: on('evt:modelProgress'),
+  onFinishing: on('evt:finishing')
 });

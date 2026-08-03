@@ -45,8 +45,13 @@ class Session extends EventEmitter {
     this.pendingFactRun = false;
   }
 
+  get id() {
+    return this.store ? this.store.id : null;
+  }
+
   get state() {
     return {
+      id: this.id,
       active: this.active,
       title: this.store ? this.store.title : '',
       dir: this.store ? this.store.dir : '',
@@ -183,6 +188,7 @@ class Session extends EventEmitter {
     this.store.finish(durationSec);
     this.emit('status', { phase: '' });
     const result = {
+      id: this.store.id,
       dir: this.store.dir,
       title: this.store.title,
       summary,
@@ -192,20 +198,6 @@ class Session extends EventEmitter {
     this.emit('finished', result);
     this.emit('state', this.state);
     return result;
-  }
-
-  /** Пересобрать итоги уже завершённого (в этой сессии) созвона. */
-  async resummarize() {
-    if (!this.store) throw new Error('Нет активного созвона');
-    const cfg = this.settings.get();
-    const summary = await llm.summarize(cfg.llm, {
-      transcript: this.transcript,
-      facts: this.facts,
-      mapChunkChars: cfg.summary.mapChunkChars,
-      basedOn: cfg.summary.basedOn
-    });
-    this.store.writeSummary(summary);
-    return summary;
   }
 
   abort() {

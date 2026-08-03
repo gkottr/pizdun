@@ -188,4 +188,47 @@ function readSession(dir) {
   };
 }
 
-module.exports = { SessionStore, listSessions, readSession, fmtClock, slugify };
+/** Расшифровка из markdown обратно в плоский текст для LLM. */
+function parseTranscriptMd(md) {
+  return String(md || '')
+    .split(/\r?\n/)
+    .map((line) => {
+      const m = /^\*\*\[\d{2}:\d{2}:\d{2}\]\*\*\s*(.*)$/.exec(line.trim());
+      return m ? m[1].trim() : '';
+    })
+    .filter(Boolean)
+    .join(' ');
+}
+
+/** Факты из markdown обратно в объекты. */
+function parseFactsMd(md) {
+  const out = [];
+  for (const line of String(md || '').split(/\r?\n/)) {
+    const m = /^-\s*`(\d{2}):(\d{2}):(\d{2})`\s*\*\*\[([^\]]*)\]\*\*\s*(.*)$/.exec(line.trim());
+    if (!m) continue;
+    out.push({
+      at: Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]),
+      category: m[4].trim(),
+      text: m[5].trim(),
+      who: ''
+    });
+  }
+  return out;
+}
+
+/** Записать итоги в готовую папку созвона (для пересборки архивных). */
+function writeSummaryTo(dir, title, markdown) {
+  fs.writeFileSync(path.join(dir, 'summary.md'), `# Итоги — ${title}\n\n${String(markdown).trim()}\n`, 'utf8');
+}
+
+module.exports = {
+  SessionStore,
+  listSessions,
+  readSession,
+  parseTranscriptMd,
+  parseFactsMd,
+  writeSummaryTo,
+  parseFrontmatter,
+  fmtClock,
+  slugify
+};
