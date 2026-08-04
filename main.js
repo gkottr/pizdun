@@ -289,6 +289,18 @@ ipcMain.handle('models:select', (_e, file) => {
 
 ipcMain.handle('sessions:list', () => storage.listSessions(settings.get().storage.dataDir));
 ipcMain.handle('sessions:resummarize', (_e, dir) => archive.resummarize(dir, settings.get()));
+
+// Переименовывать можно только то, что уже никто не пишет: у идущего созвона
+// название живёт в памяти, и следующая же запись index.md вернула бы старое.
+ipcMain.handle('sessions:rename', (_e, { dir, title }) => {
+  const busy = [active, ...finishing.values()].find((s) => s && s.store && s.store.dir === dir);
+  if (busy) {
+    throw new Error(busy === active
+      ? 'Этот созвон сейчас записывается — переименуй после завершения'
+      : 'По этому созвону ещё собираются итоги — переименуй, когда закончится');
+  }
+  return storage.renameSession(dir, title);
+});
 ipcMain.handle('sessions:read', (_e, dir) => storage.readSession(dir));
 ipcMain.handle('shell:openPath', (_e, p) => shell.openPath(p));
 ipcMain.handle('shell:showItem', (_e, p) => shell.showItemInFolder(p));

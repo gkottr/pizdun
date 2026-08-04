@@ -51,6 +51,32 @@ function parseFrontmatter(text) {
   return out;
 }
 
+/** Единый формат index.md — им пользуется и запись созвона, и переименование. */
+function buildIndexMd(meta) {
+  const fm = ['title', 'id', 'started', 'ended', 'duration', 'status']
+    .map((k) => `${k}: "${escapeYaml(meta[k] || '')}"`)
+    .join('\n');
+  const started = meta.started ? new Date(meta.started) : null;
+  return [
+    '---',
+    fm,
+    '---',
+    '',
+    `# ${meta.title}`,
+    '',
+    started ? `- Начало: ${started.toLocaleString('ru-RU')}` : '',
+    meta.ended ? `- Конец: ${new Date(meta.ended).toLocaleString('ru-RU')}` : '',
+    meta.duration ? `- Длительность: ${meta.duration}` : '',
+    '',
+    '## Файлы',
+    '',
+    '- [Итоги](./summary.md)',
+    '- [Факты](./facts.md)',
+    '- [Расшифровка](./transcript.md)',
+    ''
+  ].filter((l) => l !== '').join('\n') + '\n';
+}
+
 class SessionStore {
   constructor(dataDir, title) {
     this.dataDir = dataDir;
@@ -72,36 +98,14 @@ class SessionStore {
   }
 
   writeIndex(extra = {}) {
-    const meta = {
+    fs.writeFileSync(this.indexFile, buildIndexMd({
       title: this.title,
       id: this.id,
       started: this.startedAt.toISOString(),
       ended: extra.ended || '',
       duration: extra.duration || '',
       status: extra.status || 'recording'
-    };
-    const fm = Object.entries(meta)
-      .map(([k, v]) => `${k}: "${escapeYaml(v)}"`)
-      .join('\n');
-    const body = [
-      '---',
-      fm,
-      '---',
-      '',
-      `# ${this.title}`,
-      '',
-      `- Начало: ${this.startedAt.toLocaleString('ru-RU')}`,
-      meta.ended ? `- Конец: ${new Date(meta.ended).toLocaleString('ru-RU')}` : '',
-      meta.duration ? `- Длительность: ${meta.duration}` : '',
-      '',
-      '## Файлы',
-      '',
-      '- [Итоги](./summary.md)',
-      '- [Факты](./facts.md)',
-      '- [Расшифровка](./transcript.md)',
-      ''
-    ].filter((l) => l !== '').join('\n');
-    fs.writeFileSync(this.indexFile, body + '\n', 'utf8');
+    }), 'utf8');
   }
 
   appendTranscript(entry) {
@@ -216,6 +220,48 @@ function parseFactsMd(md) {
   return out;
 }
 
+/**
+ * Переименование созвона в архиве.
+ *
+ * Название лежит в четырёх файлах сразу — во frontmatter index.md и в заголовках
+ * transcript.md / facts.md / summary.md, поэтому правим все. Имя папки не трогаем:
+ * это идентификатор созвона, на него ссылается всё остальное.
+ */
+function renameSession(dir, newTitle) {
+  const title = String(newTitle == null ? '' : newTitle).trim();
+  if (!title) throw new Error('Название не может быть пустым');
+  if (title.length > 200) throw new Error('Название длиннее 200 символов');
+
+  const indexFile = path.join(dir, 'index.md');
+  let indexMd;
+  try {
+    indexMd = fs.readFileSync(indexFile, 'utf8');
+  } catch (_) {
+    throw new Error('Это не папка созвона: нет index.md');
+  }
+
+  const meta = parseFrontmatter(indexMd);
+  const oldTitle = meta.title || '';
+  fs.writeFileSync(indexFile, buildIndexMd({ ...meta, title }), 'utf8');
+
+  // Заголовок первой строки в остальных файлах.
+  const headings = /^#\s+(Расшифровка|Факты|Итоги)\s+—\s+.*$/m;
+  for (const name of ['transcript.md', 'facts.md', 'summary.md']) {
+    const file = path.join(dir, name);
+    let text;
+    try {
+      text = fs.readFileSync(file, 'utf8');
+    } catch (_) {
+      continue; // файла может не быть (например, итоги ещё не собирались)
+    }
+    if (headings.test(text)) {
+      fs.writeFileSync(file, text.replace(headings, (_m, kind) => `# ${kind} — ${title}`), 'utf8');
+    }
+  }
+
+  return { dir, title, oldTitle };
+}
+
 /** Записать итоги в готовую папку созвона (для пересборки архивных). */
 function writeSummaryTo(dir, title, markdown) {
   fs.writeFileSync(path.join(dir, 'summary.md'), `# Итоги — ${title}\n\n${String(markdown).trim()}\n`, 'utf8');
@@ -225,6 +271,8 @@ module.exports = {
   SessionStore,
   listSessions,
   readSession,
+  renameSession,
+  buildIndexMd,
   parseTranscriptMd,
   parseFactsMd,
   writeSummaryTo,

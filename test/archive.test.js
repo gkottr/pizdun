@@ -66,6 +66,50 @@ ok('факты читаются обратно с таймкодом и кате
   fs.rmSync(empty, { recursive: true, force: true });
   fs.rmSync(store0.dir, { recursive: true, force: true });
 
+  // --- переименование архивного созвона
+  const rdir = fs.mkdtempSync(path.join(os.tmpdir(), 'pizdun-rename-'));
+  const rs = new storage.SessionStore(rdir, 'Старое имя');
+  rs.appendTranscript({ start: 5, text: 'Реплика' });
+  rs.appendFacts([{ at: 5, category: 'факт', text: 'Что-то важное' }]);
+  rs.writeSummary('## Краткое резюме\nБыло.');
+  rs.finish(600);
+
+  const renamed = storage.renameSession(rs.dir, '  Новое имя  ');
+  ok('название обрезается от пробелов', renamed.title === 'Новое имя', renamed.title);
+  ok('старое название возвращается', renamed.oldTitle === 'Старое имя', renamed.oldTitle);
+
+  const after = storage.listSessions(rdir)[0];
+  ok('в списке архива новое название', after.title === 'Новое имя', after.title);
+  ok('метаданные не потерялись',
+    after.duration === '00:10:00' && after.status === 'done' && !!after.started,
+    JSON.stringify({ d: after.duration, s: after.status }));
+
+  const rd = (f) => fs.readFileSync(path.join(rs.dir, f), 'utf8');
+  ok('заголовок расшифровки обновлён', rd('transcript.md').startsWith('# Расшифровка — Новое имя'));
+  ok('заголовок фактов обновлён', rd('facts.md').startsWith('# Факты — Новое имя'));
+  ok('заголовок итогов обновлён', rd('summary.md').startsWith('# Итоги — Новое имя'));
+  ok('содержимое файлов не пострадало',
+    rd('transcript.md').includes('Реплика') && rd('facts.md').includes('Что-то важное')
+      && rd('summary.md').includes('Было.'));
+  ok('заголовок в теле index.md тоже обновлён', rd('index.md').includes('\n# Новое имя'));
+  ok('папка не переименовывается — она идентификатор', fs.existsSync(rs.dir));
+
+  // Кавычки в названии не должны ломать frontmatter
+  storage.renameSession(rs.dir, 'Созвон "Альфа" и Бета');
+  ok('кавычки в названии переживают перечитывание',
+    storage.listSessions(rdir)[0].title === 'Созвон "Альфа" и Бета',
+    storage.listSessions(rdir)[0].title);
+
+  for (const [bad, why] of [['', 'пустое'], ['   ', 'из пробелов'], ['x'.repeat(201), 'слишком длинное']]) {
+    let rejected = false;
+    try { storage.renameSession(rs.dir, bad); } catch (_) { rejected = true; }
+    ok(`отклоняется ${why} название`, rejected);
+  }
+  let noDir = false;
+  try { storage.renameSession(path.join(rdir, 'нет-такой'), 'Имя'); } catch (_) { noDir = true; }
+  ok('переименование несуществующего созвона отклоняется', noDir);
+  fs.rmSync(rdir, { recursive: true, force: true });
+
   // --- параллельная работа: пока А досуммаризовывается, Б уже пишется
   const srv = http.createServer((req, res2) => {
     let body = '';

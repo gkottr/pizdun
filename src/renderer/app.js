@@ -471,7 +471,7 @@ $('btnResummarize').onclick = async () => {
 
 // ---------------------------------------------------------------- архив
 
-async function openArchive() {
+async function openArchive(keepDir = null) {
   $('archiveModal').hidden = false;
   const items = await window.api.archive.list();
   state.archive.items = items;
@@ -479,15 +479,18 @@ async function openArchive() {
   list.innerHTML = '';
   if (!items.length) {
     list.innerHTML = '<li class="empty">Пока пусто</li>';
+    showArchiveTitle('');
     return;
   }
+  // После переименования держим выбранным тот же созвон.
+  const selected = Math.max(0, items.findIndex((it) => it.dir === keepDir));
   items.forEach((it, i) => {
     const li = document.createElement('li');
     const when = it.started ? new Date(it.started).toLocaleString('ru-RU') : '';
     li.innerHTML = `<span class="n">${escapeHtml(it.title)}</span><span class="d">${when}${it.duration ? ` · ${it.duration}` : ''}</span>`;
     li.onclick = () => selectArchive(i, li);
     list.appendChild(li);
-    if (i === 0) selectArchive(0, li);
+    if (i === selected) selectArchive(i, li);
   });
 }
 
@@ -497,6 +500,7 @@ async function selectArchive(index, li) {
   const item = state.archive.items[index];
   state.archive.current = await window.api.archive.read(item.dir);
   state.archive.current.dir = item.dir;
+  showArchiveTitle(item.title);
   renderArchiveTab();
 }
 
@@ -510,6 +514,65 @@ function renderArchiveTab() {
     : '<p class="empty">Пусто — этот файл не создавался.</p>';
   body.scrollTop = 0;
 }
+
+// ---- переименование созвона в архиве
+const rename = {
+  input: $('archiveTitleInput'),
+  start: $('btnRenameStart'),
+  save: $('btnRenameSave'),
+  cancel: $('btnRenameCancel')
+};
+
+function renameMode(on) {
+  rename.input.disabled = !on;
+  rename.start.hidden = on;
+  rename.save.hidden = !on;
+  rename.cancel.hidden = !on;
+  if (on) {
+    rename.input.focus();
+    rename.input.select();
+  }
+}
+
+function showArchiveTitle(title) {
+  rename.input.value = title || '';
+  renameMode(false);
+}
+
+rename.start.onclick = () => renameMode(true);
+rename.cancel.onclick = () => showArchiveTitle(currentArchiveTitle());
+
+function currentArchiveTitle() {
+  const item = state.archive.items.find((i) => state.archive.current && i.dir === state.archive.current.dir);
+  return item ? item.title : '';
+}
+
+rename.save.onclick = async () => {
+  const cur = state.archive.current;
+  if (!cur) return;
+  rename.save.disabled = true;
+  try {
+    const res = await window.api.archive.rename(cur.dir, rename.input.value);
+    // Перечитываем список и файлы: заголовки внутри markdown тоже поменялись.
+    await openArchive(cur.dir);
+    toast(`Переименован: ${res.title}`, 'ok');
+  } catch (err) {
+    toast(err.message, 'err');
+    showArchiveTitle(currentArchiveTitle());
+  } finally {
+    rename.save.disabled = false;
+  }
+};
+
+rename.input.onkeydown = (e) => {
+  if (rename.input.disabled) return;
+  if (e.key === 'Enter') { e.preventDefault(); rename.save.onclick(); }
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();       // иначе Escape закроет весь архив
+    showArchiveTitle(currentArchiveTitle());
+  }
+};
 
 $('btnArchiveResummarize').onclick = async () => {
   const cur = state.archive.current;
@@ -542,7 +605,7 @@ document.querySelectorAll('.tab').forEach((tab) => {
   };
 });
 
-$('btnArchive').onclick = openArchive;
+$('btnArchive').onclick = () => openArchive();
 $('btnCloseArchive').onclick = () => { $('archiveModal').hidden = true; };
 
 // ---------------------------------------------------------------- настройки UI

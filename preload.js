@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld('api', {
   archive: {
     list: () => ipcRenderer.invoke('sessions:list'),
     resummarize: (dir) => ipcRenderer.invoke('sessions:resummarize', dir),
+    rename: (dir, title) => ipcRenderer.invoke('sessions:rename', { dir, title }),
     read: (dir) => ipcRenderer.invoke('sessions:read', dir)
   },
   shell: {
