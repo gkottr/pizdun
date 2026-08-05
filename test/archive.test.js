@@ -110,6 +110,35 @@ ok('факты читаются обратно с таймкодом и кате
   ok('переименование несуществующего созвона отклоняется', noDir);
   fs.rmSync(rdir, { recursive: true, force: true });
 
+  // --- проверки перед удалением: путь приходит из рендерера, доверять нельзя
+  const ddir = fs.mkdtempSync(path.join(os.tmpdir(), 'pizdun-del-'));
+  const ds = new storage.SessionStore(ddir, 'На удаление');
+
+  ok('нормальный созвон к удалению допускается',
+    storage.assertDeletable(ddir, ds.dir) === path.resolve(ds.dir));
+  ok('путь нормализуется',
+    storage.assertDeletable(ddir, path.join(ds.dir, '.', '')) === path.resolve(ds.dir));
+
+  const rejects = [
+    ['саму папку с данными', ddir],
+    ['путь наружу через ..', path.join(ds.dir, '..', '..')],
+    ['произвольный системный путь', os.homedir()],
+    ['вложенную папку созвона', path.join(ds.dir, 'что-то')],
+    ['пустой путь', '']
+  ];
+  for (const [why, bad] of rejects) {
+    let rejected = false;
+    try { storage.assertDeletable(ddir, bad); } catch (_) { rejected = true; }
+    ok(`нельзя удалить ${why}`, rejected);
+  }
+
+  const notSession = path.join(ddir, 'просто-папка');
+  fs.mkdirSync(notSession);
+  let refusedPlain = false;
+  try { storage.assertDeletable(ddir, notSession); } catch (_) { refusedPlain = true; }
+  ok('папка без index.md не считается созвоном', refusedPlain);
+  fs.rmSync(ddir, { recursive: true, force: true });
+
   // --- параллельная работа: пока А досуммаризовывается, Б уже пишется
   const srv = http.createServer((req, res2) => {
     let body = '';

@@ -262,6 +262,24 @@ function renameSession(dir, newTitle) {
   return { dir, title, oldTitle };
 }
 
+/**
+ * Проверка перед удалением созвона.
+ *
+ * Путь приходит из рендерера, поэтому доверять ему нельзя: разрешаем удалять
+ * только папку созвона, лежащую непосредственно в папке с данными.
+ * Возвращает нормализованный путь.
+ */
+function assertDeletable(dataDir, dir) {
+  const root = path.resolve(dataDir);
+  const target = path.resolve(String(dir || ''));
+
+  if (target === root) throw new Error('Нельзя удалить саму папку с данными');
+  if (path.dirname(target) !== root) throw new Error('Это не созвон из архива');
+  if (!fs.existsSync(path.join(target, 'index.md'))) throw new Error('Это не папка созвона: нет index.md');
+
+  return target;
+}
+
 /** Записать итоги в готовую папку созвона (для пересборки архивных). */
 function writeSummaryTo(dir, title, markdown) {
   fs.writeFileSync(path.join(dir, 'summary.md'), `# Итоги — ${title}\n\n${String(markdown).trim()}\n`, 'utf8');
@@ -272,6 +290,7 @@ module.exports = {
   listSessions,
   readSession,
   renameSession,
+  assertDeletable,
   buildIndexMd,
   parseTranscriptMd,
   parseFactsMd,

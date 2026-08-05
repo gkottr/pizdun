@@ -480,6 +480,8 @@ async function openArchive(keepDir = null) {
   if (!items.length) {
     list.innerHTML = '<li class="empty">Пока пусто</li>';
     showArchiveTitle('');
+    state.archive.current = null;
+    $('archiveBody').innerHTML = '<p class="empty">Архив пуст.</p>';
     return;
   }
   // После переименования держим выбранным тот же созвон.
@@ -571,6 +573,26 @@ rename.input.onkeydown = (e) => {
     e.preventDefault();
     e.stopPropagation();       // иначе Escape закроет весь архив
     showArchiveTitle(currentArchiveTitle());
+  }
+};
+
+// Подтверждение и отправку в корзину делает main-процесс — там же проверка,
+// что путь действительно относится к архиву.
+$('btnArchiveDelete').onclick = async () => {
+  const cur = state.archive.current;
+  if (!cur) return;
+  const btn = $('btnArchiveDelete');
+  btn.disabled = true;
+  try {
+    const res = await window.api.archive.delete(cur.dir);
+    if (!res.deleted) return;             // передумали в диалоге
+    state.archive.current = null;
+    await openArchive();
+    toast(`Созвон «${res.title}» в корзине`, 'ok');
+  } catch (err) {
+    toast(err.message, 'err');
+  } finally {
+    btn.disabled = false;
   }
 };
 

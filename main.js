@@ -292,6 +292,33 @@ ipcMain.handle('sessions:resummarize', (_e, dir) => archive.resummarize(dir, set
 
 // Переименовывать можно только то, что уже никто не пишет: у идущего созвона
 // название живёт в памяти, и следующая же запись index.md вернула бы старое.
+// Удаление отправляет папку в корзину ОС, а не стирает насовсем: расшифровку
+// созвона восстановить неоткуда, поэтому пусть остаётся путь назад.
+ipcMain.handle('sessions:delete', async (_e, dir) => {
+  const busy = [active, ...finishing.values()].find((s) => s && s.store && s.store.dir === dir);
+  if (busy) {
+    throw new Error(busy === active
+      ? 'Этот созвон сейчас записывается — удалить можно после завершения'
+      : 'По этому созвону ещё собираются итоги — удали, когда закончится');
+  }
+
+  const target = storage.assertDeletable(settings.get().storage.dataDir, dir);
+  const meta = storage.parseFrontmatter(fs.readFileSync(path.join(target, 'index.md'), 'utf8'));
+
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'warning',
+    buttons: ['Отмена', 'Удалить'],
+    defaultId: 0,
+    cancelId: 0,
+    message: `Удалить созвон «${meta.title || path.basename(target)}»?`,
+    detail: 'Расшифровка, факты и итоги отправятся в корзину.'
+  });
+  if (response !== 1) return { deleted: false };
+
+  await shell.trashItem(target);
+  return { deleted: true, title: meta.title || '' };
+});
+
 ipcMain.handle('sessions:rename', (_e, { dir, title }) => {
   const busy = [active, ...finishing.values()].find((s) => s && s.store && s.store.dir === dir);
   if (busy) {
